@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+
+import os
+import json
+import pathlib
+import subprocess
+import click
+import sys
+from typing import Optional
+
+# path variables here
+SNAP = pathlib.Path(os.getenv("SNAP") or "/snap/microk8s/current")
+HELM = SNAP / "microk8s-helm3.wrapper"
+KUBECTL = SNAP / "microk8s-kubectl.wrapper"
+MICROK8S_ENABLE = SNAP / "microk8s-enable.wrapper"
+
+# check cluster health
+
+# check if cert-manager is already installed, if not install it
+def verify_cert_manager():
+    helm_chart_out = subprocess.check_output([HELM, "ls", "-n", "cert-manager", "-o", "json"])
+    helm_chart_json = json.loads(helm_chart_out)
+
+    # validate has cert-manager helm chart deployed
+    has_helm_chart = False
+    for helm_chart in helm_chart_json:
+        name = helm_chart["name"] == "cert-manager"
+        if not name:
+            continue
+        status = helm_chart["status"] == "deployed"
+        chart = helm_chart["chart"] == "cert-manager-v1.15.1"
+        app_version = helm_chart["appVersion"] == "v1.15.1"
+        if status and chart and app_version:
+            has_helm_chart = True
+
+    if not has_helm_chart:
+        return False
+    
+    # validate all cert-manager pods are ready
+    pods_out = subprocess.check_output([KUBECTL, "get", "pods", "-n", "cert-manager", "-o", "json"])
+    pods_json = json.loads(pods_out)
+    containers_ready = True
+    for pod in pods_json:
+        if "cert-manager" not in pod["metadata"]["name"]:
+            continue
+        container_status = pod["status"]["containerStatuses"]
+        current_containers_ready = all([container["ready"] for container in container_status])
+        containers_ready = containers_ready and current_containers_ready
+
+    if containers_ready:
+        return True
+    
+    return False
+    
+def install_cert_manager(
+    installed_cert_manager:bool
+):
+    if installed_cert_manager or verify_cert_manager():
+        return
+    else:
+        click.echo("Installing cert-manager")
+        subprocess.run([HELM, "repo", "add", "jetstack", "https://charts.jetstack.io", "--force-update"])
+        subprocess.run([
+            HELM, 
+            "install", 
+            "cert-manager", 
+            "jetstack/cert-manager", 
+            "--namespace", 
+            "cert-manager",
+            "--create-namespace",
+            "--version",
+            "v1.15.1",
+            "--set",
+            "crds.enabled=true"
+        ])
+
+# install the gpu operator
+def deploy_gpu_operator(
+    helm_set : list,
+    helm_values: Optional[str] = None,
+    version: Optional[str] = None,
+):
+    click.echo("Deploying AMD GPU Operator")
+
+    subprocess.run([HELM, "repo", "add", "rocm", "https://rocm.github.io/gpu-operator"])
+    subprocess.run([HELM, "repo", "update"])
+
+    operator_args = [
+        "install",
+        "amd-gpu-operator",
+        "rocm/gpu-operator-charts",
+        "--namespace",
+        "kube-amd-gpu",
+        "--create-namespace"
+    ]
+
+    if version is not None:
+        operator_args.extend(["--version", version])
+    for set in helm_set:
+        operator_args.extend(["--set", set])
+    if helm_values is not None:
+        operator_args.extend(["-f", helm_values])
+
+    subprocess.run([HELM, *operator_args])
+
+
+def main(
+    installed_cert_manager: bool,
+    gpu_operator_version: Optional[str] = None,
+    gpu_operator_set: Optional[list] = None,
+    gpu_operator_values: Optional[str] = None,
+    device_config_file: Optional[str] = None,
+):
+    subprocess.run([MICROK8S_ENABLE, "core/helm"]) # make sure helm is enabled in mk8s
+        # helm is automatically activated in microk8s, is the above line necessary?
+        # (is there a way to jailbreak / maybe use a previous version of microk8s)
+    install_cert_manager(installed_cert_manager)
+    deploy_gpu_operator(
+        helm_set=gpu_operator_set, 
+        helm_values=gpu_operator_values, 
+        version=gpu_operator_version
+    )
+    '''
+    for now this is what device config section looks like, next will add a templating
+    angle such that if the user does not specify their own device config file, we can
+    generate one to use to activate the driver
+    '''
+    if device_config_file is None:
+        click.echo(
+            "Please create a DeviceConfig custom resource in a YAML file\n" \
+            "Create the custom resource by running 'microk8s kubectl apply -f <filename>.yaml'"
+        )
+    else:
+        subprocess.run([KUBECTL, "apply", "-f", device_config_file])
+
+    
