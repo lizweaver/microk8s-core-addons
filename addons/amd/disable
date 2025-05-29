@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+
+import os
+import json
+import pathlib
+import subprocess
+import sys
+import click
+from typing import Optional
+
+SNAP = pathlib.Path(os.getenv("SNAP") or "/snap/microk8s/current")
+HELM = SNAP / "microk8s-helm3.wrapper"
+KUBECTL = SNAP / "microk8s-kubectl.wrapper"
+OPERATOR_CRDS = [
+    'deviceconfigs.amd.com',
+] # put crds to delete here
+
+@click.command()
+@click.option('--delete-all-crds', is_flag=True)
+@click.option('--device-config-name')
+@click.option('--delete-all-device-configs', is_flag=True)
+def main(
+    delete_all_crds: bool,
+    device_config_name: Optional[str],
+    delete_all_device_configs: bool,
+):
+    click.echo("Disabling AMD GPU operator")
+
+    # delete device configs
+    if device_config_name is not None:
+        if os.path.exists(f"./{device_config_name}.yaml"):
+            subprocess.run([KUBECTL, "delete", "-f", f"{device_config_name}.yaml"])
+        else:
+            subprocess.run([KUBECTL, "delete", "deviceconfigs", device_config_name, "-n", "kube-amd-gpu"])
+    elif delete_all_device_configs:
+        subprocess.run([KUBECTL, "delete", "deviceconfigs", "--all", "-n", "kube-amd-gpu"])
+    else:
+        click.echo(
+            "WARNING: DeviceConfig name not provided, and delete-all-device-configs is set to False\n"
+            "Assuming the DeviceConfig has been deleted manually"
+        )
+
+    try:
+        charts_json_string = subprocess.check_output([HELM, "ls", "-n", "kube-amd-gpu", "-o", "json"])
+        charts = json.loads(charts_json_string)
+    except (OSError, json.JSONDecodeError):
+        click.echo("ERROR: Failed to retrieve installed helm charts", err=True)
+        charts = []
+    
+    found_gpu_operator_chart = False
+    for chart in charts:
+        if chart.get("name") == "amd-gpu-operator":
+            subprocess.run([HELM, "uninstall", "amd-gpu-operator", "-n", "kube-amd-gpu"])
+            found_gpu_operator_chart = True
+
+    if not found_gpu_operator_chart:
+        click.echo("WARNING: No AMD GPU Operator helm chart found")
+
+    if delete_all_crds:
+        try:
+            crds_json_string = subprocess.check_output([KUBECTL, "get", "crds", "-o", "json"])
+            crds = json.loads(crds_json_string)
+        except (OSError, json.JSONDecodeError):
+            click.echo("ERROR: Failed to retrieve all CRDs, only removing default CRDs", err=True)
+            crds = OPERATOR_CRDS
+    else:
+        crds = OPERATOR_CRDS
+    
+    for crd in crds:
+        crd_name = crd.get("name")
+        subprocess.run([KUBECTL, "delete", "crds", crd_name])
+
+
+    
+

@@ -18,12 +18,16 @@ MICROK8S_ENABLE = SNAP / "microk8s-enable.wrapper"
 
 # check if cert-manager is already installed, if not install it
 def verify_cert_manager():
-    helm_chart_out = subprocess.check_output([HELM, "ls", "-n", "cert-manager", "-o", "json"])
-    helm_chart_json = json.loads(helm_chart_out)
+    try:
+        helm_chart_json_string = subprocess.check_output([HELM, "ls", "-n", "cert-manager", "-o", "json"])
+        helm_charts = json.loads(helm_chart_json_string)
+    except(OSError, json.JSONDecodeError):
+        click.echo("WARNING: Failed to retrieve cert-manager helm charts, proceeding with cert-manager installation")
+        return False
 
     # validate has cert-manager helm chart deployed
     has_helm_chart = False
-    for helm_chart in helm_chart_json:
+    for helm_chart in helm_charts:
         name = helm_chart["name"] == "cert-manager"
         if not name:
             continue
@@ -37,10 +41,15 @@ def verify_cert_manager():
         return False
     
     # validate all cert-manager pods are ready
-    pods_out = subprocess.check_output([KUBECTL, "get", "pods", "-n", "cert-manager", "-o", "json"])
-    pods_json = json.loads(pods_out)
+    try:
+        pods_json_string = subprocess.check_output([KUBECTL, "get", "pods", "-n", "cert-manager", "-o", "json"])
+        pods = json.loads(pods_json_string)
+    except(OSError, json.JSONDecodeError):
+        click.echo("WARNING: Failed to retrieve cert-manager pods, proceeding with cert-manager installation")
+        return False
+    
     containers_ready = True
-    for pod in pods_json:
+    for pod in pods:
         if "cert-manager" not in pod["metadata"]["name"]:
             continue
         container_status = pod["status"]["containerStatuses"]
@@ -102,14 +111,25 @@ def deploy_gpu_operator(
         operator_args.extend(["-f", helm_values])
 
     subprocess.run([HELM, *operator_args])
+    
 
-
+@click.command()
+@click.argument(
+    "driver-type",
+    default="",
+    type=click.Choice(["", "force-operator-driver", "force-system-driver"]),
+)
+@click.option("--installed-cert-manager", is_flag=True)
+@click.option("--gpu-operator-version")
+@click.option("--gpu-operator-driver", type=click.Choice(["auto", "operator", "host"]))
+@click.option("--gpu-operator-set", multiple=True)
+@click.option("--gpu-operator-values", type=click.Path(exists=True))
 def main(
     installed_cert_manager: bool,
-    gpu_operator_version: Optional[str] = None,
-    gpu_operator_set: Optional[list] = None,
-    gpu_operator_values: Optional[str] = None,
-    device_config_file: Optional[str] = None,
+    gpu_operator_version: Optional[str],
+    gpu_operator_set: Optional[list],
+    gpu_operator_values: Optional[str],
+    device_config_file: Optional[str],
 ):
     subprocess.run([MICROK8S_ENABLE, "core/helm"]) # make sure helm is enabled in mk8s
         # helm is automatically activated in microk8s, is the above line necessary?
