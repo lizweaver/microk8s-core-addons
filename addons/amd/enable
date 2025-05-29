@@ -15,6 +15,20 @@ KUBECTL = SNAP / "microk8s-kubectl.wrapper"
 MICROK8S_ENABLE = SNAP / "microk8s-enable.wrapper"
 
 # check cluster health
+def check_nodes():
+    try: 
+        nodes_json_string = subprocess.check_output([KUBECTL, 'get', 'nodes', '-o', 'json'])
+        node_list = json.loads(nodes_json_string)
+    except(OSError, json.JSONDecodeError):
+        click.echo("ERROR: Failed to retrieve nodes", err=True)
+        sys.exit(1)
+    
+    for node in node_list['items']:
+        conditions = node['status']['conditions']
+        ready_condition = next((c for c in conditions if c['type'] == 'Ready'), None)
+        if ready_condition is None or ready_condition['status'] != 'True':
+            click.echo("ERROR: Not ready nodes detected. Please check the health of your cluster", err=True)
+            sys.exit(1)
 
 # check if cert-manager is already installed, if not install it
 def verify_cert_manager():
@@ -56,10 +70,7 @@ def verify_cert_manager():
         current_containers_ready = all([container["ready"] for container in container_status])
         containers_ready = containers_ready and current_containers_ready
 
-    if containers_ready:
-        return True
-    
-    return False
+    return containers_ready
     
 def install_cert_manager(
     installed_cert_manager:bool
@@ -121,7 +132,6 @@ def deploy_gpu_operator(
 )
 @click.option("--installed-cert-manager", is_flag=True)
 @click.option("--gpu-operator-version")
-@click.option("--gpu-operator-driver", type=click.Choice(["auto", "operator", "host"]))
 @click.option("--gpu-operator-set", multiple=True)
 @click.option("--gpu-operator-values", type=click.Path(exists=True))
 def main(
@@ -129,28 +139,14 @@ def main(
     gpu_operator_version: Optional[str],
     gpu_operator_set: Optional[list],
     gpu_operator_values: Optional[str],
-    device_config_file: Optional[str],
 ):
-    subprocess.run([MICROK8S_ENABLE, "core/helm"]) # make sure helm is enabled in mk8s
-        # helm is automatically activated in microk8s, is the above line necessary?
-        # (is there a way to jailbreak / maybe use a previous version of microk8s)
+    subprocess.run([MICROK8S_ENABLE, "core/helm"]) # make sure helm is enabled
+    check_nodes()
     install_cert_manager(installed_cert_manager)
     deploy_gpu_operator(
         helm_set=gpu_operator_set, 
         helm_values=gpu_operator_values, 
         version=gpu_operator_version
     )
-    '''
-    for now this is what device config section looks like, next will add a templating
-    angle such that if the user does not specify their own device config file, we can
-    generate one to use to activate the driver
-    '''
-    if device_config_file is None:
-        click.echo(
-            "Please create a DeviceConfig custom resource in a YAML file\n" \
-            "Create the custom resource by running 'microk8s kubectl apply -f <filename>.yaml'"
-        )
-    else:
-        subprocess.run([KUBECTL, "apply", "-f", device_config_file])
 
     
