@@ -29,6 +29,7 @@ def main(
         except (OSError, json.JSONDecodeError):
             click.echo("ERROR: Failed to retrieve all CRDs, only removing default CRDs", err=True)
 
-
+if __name__ == "__main__":
+    main()
     
 

@@ -149,4 +149,6 @@ def main(
         version=gpu_operator_version
     )
 
+if __name__ == "__main__":
+    main()
     
