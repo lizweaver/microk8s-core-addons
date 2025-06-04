@@ -435,6 +435,7 @@ class TestAddons(object):
         try:
             print("Enabling amd")
             microk8s_enable("amd --gpu-operator-values {}".format(values_template))
+            print("Enabled")
         except CalledProcessError:
             print("Could not enable amd addon")
             return
@@ -442,6 +443,7 @@ class TestAddons(object):
         try:
             print("Disabling amd")
             microk8s_disable("amd")
+            print("Disabled")
         except CalledProcessError:
             print("Could not disable amd addon")
             return

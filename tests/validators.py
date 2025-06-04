@@ -569,7 +569,8 @@ def validate_amd():
     if platform.machine() != "x86_64":
         print("GPU tests are only relevant on x86 architectures")
         return
-
+    
+    print("Checking deviceconfig")
     namespace = "kube-amd-gpu"
     device_config_string = kubectl(f"get deviceconfig default -n {namespace} -o yaml")
     device_config_spec = yaml.safe_load(device_config_string)["spec"]
@@ -579,3 +580,4 @@ def validate_amd():
     metrics_exporter_passed = not device_config_spec["metricsExporter"]["enable"]
 
     assert selector_passed and test_runner_passed and metrics_exporter_passed
+    print("Check passed")
