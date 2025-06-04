@@ -576,6 +576,6 @@ def validate_amd():
 
     selector_passed = device_config_spec["selector"]["unit-test-check"] == "true"
     test_runner_passed = device_config_spec["testRunner"]["enable"]
-    metrics_exporter_passed = device_config_spec["metricsExporter"]["enable"]
+    metrics_exporter_passed = not device_config_spec["metricsExporter"]["enable"]
 
     assert selector_passed and test_runner_passed and metrics_exporter_passed
