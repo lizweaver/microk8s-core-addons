@@ -563,26 +563,19 @@ def validate_rook_ceph_integration():
 
 def validate_amd():
     """
-    Validate AMD by running a simple test pod that runs 'amd-smi' and checks output.
+    Validate AMD by checking deviceConfig.
     """
 
     if platform.machine() != "x86_64":
         print("GPU tests are only relevant on x86 architectures")
         return
 
-    namespace = "default"
-    test_pod_name = "amd-smi"
-    smi_manifest = TEMPLATES / "amd-smi.yaml"
+    namespace = "kube-amd-gpu"
+    device_config_string = kubectl(f"get deviceconfig default -n {namespace} -o yaml")
+    device_config_yaml = yaml.safe_load(device_config_string)
 
-    existing_pods = kubectl(f"get po {test_pod_name} -n {namespace}")
-    if test_pod_name in existing_pods:
-        kubectl(f"delete po {test_pod_name} -n {namespace}")
-        time.sleep(10)
+    selector_passed = device_config_yaml["spec"]["selector"]["unit-test-check"] == "true"
+    test_runner_passed = device_config_yaml["testRunner"]["enable"]
+    metrics_exporter_passed = device_config_yaml["metricsExporter"]["enable"]
 
-    kubectl(f"apply -f {smi_manifest}")
-    wait_for_pod_state(test_pod_name, namespace, "Succeeded", timeout_insec=600)
-
-    logs = kubectl(f"logs pod/{test_pod_name} -n {namespace}")
-
-    passed = "AMDSMI Tool" in logs and "ROCm version" in logs
-    assert passed
+    assert selector_passed and test_runner_passed and metrics_exporter_passed

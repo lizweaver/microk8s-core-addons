@@ -431,9 +431,10 @@ class TestAddons(object):
         Sets up amd gpu operator in a gpu capable system. Skip otherwise.
 
         """
+        values_template = TEMPLATES / "amd-values.yaml"
         try:
             print("Enabling amd")
-            microk8s_enable("amd")
+            microk8s_enable("amd --gpu-operator-values {}".format(values_template))
         except CalledProcessError:
             print("Could not enable amd addon")
             return
