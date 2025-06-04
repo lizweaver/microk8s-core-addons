@@ -572,10 +572,10 @@ def validate_amd():
 
     namespace = "kube-amd-gpu"
     device_config_string = kubectl(f"get deviceconfig default -n {namespace} -o yaml")
-    device_config_yaml = yaml.safe_load(device_config_string)
+    device_config_spec = yaml.safe_load(device_config_string)["spec"]
 
-    selector_passed = device_config_yaml["spec"]["selector"]["unit-test-check"] == "true"
-    test_runner_passed = device_config_yaml["testRunner"]["enable"]
-    metrics_exporter_passed = device_config_yaml["metricsExporter"]["enable"]
+    selector_passed = device_config_spec["selector"]["unit-test-check"] == "true"
+    test_runner_passed = device_config_spec["testRunner"]["enable"]
+    metrics_exporter_passed = device_config_spec["metricsExporter"]["enable"]
 
     assert selector_passed and test_runner_passed and metrics_exporter_passed
